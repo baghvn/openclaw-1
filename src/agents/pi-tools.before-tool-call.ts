@@ -28,6 +28,17 @@ import { isPlainObject } from "../utils.js";
 import { copyChannelAgentToolMeta } from "./channel-tools.js";
 import { normalizeToolName } from "./tool-policy.js";
 import type { AnyAgentTool } from "./tools/common.js";
+import { callGatewayTool } from "./tools/gateway.js";
+
+export function isAbortSignalCancellation(err: unknown, signal?: AbortSignal): boolean {
+  if (!signal?.aborted) {
+    return false;
+  }
+  if (err === signal.reason) {
+    return true;
+  }
+  return err instanceof Error && err.name === "AbortError";
+}
 
 export type HookContext = {
   agentId?: string;

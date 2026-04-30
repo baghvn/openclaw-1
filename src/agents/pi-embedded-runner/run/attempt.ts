@@ -10,6 +10,7 @@ import {
 import { isAcpRuntimeSpawnAvailable } from "../../../acp/runtime/availability.js";
 import { filterHeartbeatPairs } from "../../../auto-reply/heartbeat-filter.js";
 import { getRuntimeConfig } from "../../../config/config.js";
+import { appendBlockedUserMessageToSessionTranscript } from "../../../config/sessions/transcript.js";
 import { emitTrustedDiagnosticEvent } from "../../../infra/diagnostic-events.js";
 import {
   createChildDiagnosticTraceContext,
@@ -22,6 +23,8 @@ import { resolveHeartbeatSummaryForAgent } from "../../../infra/heartbeat-summar
 import { getMachineDisplayName } from "../../../infra/machine-name.js";
 import { MAX_IMAGE_BYTES } from "../../../media/constants.js";
 import { listRegisteredPluginAgentPromptGuidance } from "../../../plugins/command-registry-state.js";
+import { requestSingleHookApproval } from "../../../plugins/hook-approval.js";
+import { type HookDecisionAsk, resolveBlockMessage } from "../../../plugins/hook-decision-types.js";
 import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
 import {
   extractModelCompat,
@@ -2272,7 +2275,7 @@ export async function runEmbeddedAttempt(
       const hookAgentId = sessionAgentId;
 
       let preflightRecovery: EmbeddedRunAttemptResult["preflightRecovery"];
-      let promptErrorSource: "prompt" | "compaction" | "precheck" | null = null;
+      let promptErrorSource: EmbeddedRunAttemptResult["promptErrorSource"] = null;
       let skipPromptSubmission = false;
       try {
         const promptStartedAt = Date.now();
@@ -2598,6 +2601,130 @@ export async function runEmbeddedAttempt(
                 `promptImages=${imageResult.images.length} ` +
                 `provider=${params.provider}/${params.modelId} sessionFile=${params.sessionFile}`,
             );
+          }
+
+          if (!isRawModelRun && hookRunner?.hasHooks("before_agent_run")) {
+            const beforeRunResult = await hookRunner.runBeforeAgentRun(
+              {
+                prompt: effectivePrompt,
+                messages: activeSession.messages,
+                channelId: params.messageChannel ?? params.messageProvider ?? undefined,
+                senderId: params.senderId ?? undefined,
+                senderIsOwner: params.senderIsOwner ?? undefined,
+              },
+              hookCtx,
+            );
+            const beforeRunDecision = beforeRunResult?.decision;
+            const beforeRunPluginId = beforeRunResult?.pluginId ?? "unknown";
+            if (beforeRunDecision?.outcome === "block") {
+              const blockReplacementMsg = resolveBlockMessage(beforeRunDecision);
+              log.warn(
+                `before_agent_run hook blocked by ${beforeRunPluginId}: ${beforeRunDecision.reason}`,
+              );
+              if (params.prompt) {
+                try {
+                  await appendBlockedUserMessageToSessionTranscript({
+                    agentId: sessionAgentId,
+                    sessionKey: params.sessionKey ?? "",
+                    originalText: params.prompt,
+                    redactedText: blockReplacementMsg,
+                    pluginId: beforeRunPluginId,
+                    reason: beforeRunDecision.reason,
+                    idempotencyKey: `hook-block:before_agent_run:user:${params.runId}`,
+                    updateMode: "inline",
+                  });
+                } catch (err) {
+                  log.warn(
+                    `before_agent_run block: failed to persist redacted user message: ${
+                      (err as Error)?.message ?? String(err)
+                    }`,
+                  );
+                }
+              }
+              promptError = new Error(blockReplacementMsg);
+              promptErrorSource = "hook:before_agent_run";
+              skipPromptSubmission = true;
+            } else if (beforeRunDecision?.outcome === "ask") {
+              log.warn(
+                `before_agent_run hook requesting approval (${beforeRunPluginId}): ${beforeRunDecision.reason}`,
+              );
+              const approvalResult = await requestSingleHookApproval({
+                hookPoint: "before_agent_run",
+                decision: beforeRunDecision,
+                pluginId: beforeRunPluginId,
+                runId: params.runId,
+                sessionKey: params.sessionKey,
+                agentId: hookAgentId,
+                signal: params.abortSignal,
+                log,
+              });
+
+              const persistBlockedApproval = async (
+                message: string,
+                reason: string,
+                suffix: string,
+              ) => {
+                if (!params.prompt) {
+                  return;
+                }
+                try {
+                  await appendBlockedUserMessageToSessionTranscript({
+                    agentId: sessionAgentId,
+                    sessionKey: params.sessionKey ?? "",
+                    originalText: params.prompt,
+                    redactedText: message,
+                    pluginId: beforeRunPluginId,
+                    reason,
+                    idempotencyKey: `hook-ask-${suffix}:before_agent_run:user:${params.runId}`,
+                    updateMode: "inline",
+                  });
+                } catch (err) {
+                  log.warn(
+                    `before_agent_run ask-${suffix}: failed to persist redacted user message: ${
+                      (err as Error)?.message ?? String(err)
+                    }`,
+                  );
+                }
+              };
+
+              if (approvalResult === "deny" || approvalResult === "cancelled") {
+                log.warn(
+                  `before_agent_run hook approval ${approvalResult} (plugin=${beforeRunPluginId})${
+                    approvalResult === "cancelled"
+                      ? " — no approval route available (is control-ui connected?)"
+                      : ""
+                  }`,
+                );
+                const denyReplacementMsg =
+                  beforeRunDecision.denialMessage ?? "Request denied by owner.";
+                await persistBlockedApproval(
+                  denyReplacementMsg,
+                  beforeRunDecision.reason ?? `approval ${approvalResult}`,
+                  "deny",
+                );
+                promptError = new Error(denyReplacementMsg);
+                promptErrorSource = "hook:before_agent_run";
+                skipPromptSubmission = true;
+              } else if (approvalResult === "timeout") {
+                const behavior = (beforeRunDecision as HookDecisionAsk).timeoutBehavior ?? "deny";
+                if (behavior === "deny") {
+                  log.warn(`before_agent_run hook approval timed out (behavior=deny)`);
+                  const timeoutMsg = beforeRunDecision.denialMessage ?? "Approval timed out.";
+                  await persistBlockedApproval(
+                    timeoutMsg,
+                    beforeRunDecision.reason ?? "approval timed out",
+                    "timeout",
+                  );
+                  promptError = new Error(timeoutMsg);
+                  promptErrorSource = "hook:before_agent_run";
+                  skipPromptSubmission = true;
+                } else {
+                  log.warn(`before_agent_run hook approval timed out (behavior=allow), proceeding`);
+                }
+              } else {
+                log.debug(`before_agent_run hook approval granted (${approvalResult}), proceeding`);
+              }
+            }
           }
 
           if (!isRawModelRun && hookRunner?.hasHooks("llm_input")) {

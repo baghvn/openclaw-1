@@ -7,12 +7,7 @@ const hookCtx = {
 };
 
 async function expectLlmHookCall(params: {
-  hookName:
-    | "model_call_started"
-    | "model_call_ended"
-    | "llm_input"
-    | "llm_output"
-    | "llm_message_end";
+  hookName: "model_call_started" | "model_call_ended" | "llm_input" | "llm_output";
   event: Record<string, unknown>;
   expectedEvent: Record<string, unknown>;
 }) {
@@ -37,17 +32,12 @@ async function expectLlmHookCall(params: {
       } as Parameters<typeof runner.runLlmInput>[0],
       hookCtx,
     );
-  } else if (params.hookName === "llm_output") {
+  } else {
     await runner.runLlmOutput(
       {
         ...params.event,
         assistantTexts: [...((params.event.assistantTexts as string[] | undefined) ?? [])],
       } as Parameters<typeof runner.runLlmOutput>[0],
-      hookCtx,
-    );
-  } else {
-    await runner.runLlmMessageEnd(
-      params.event as Parameters<typeof runner.runLlmMessageEnd>[0],
       hookCtx,
     );
   }
@@ -127,27 +117,6 @@ describe("llm hook runner methods", () => {
       },
       expectedEvent: { runId: "run-1", assistantTexts: ["hi"] },
     },
-    {
-      name: "runLlmMessageEnd invokes registered llm_message_end hooks",
-      hookName: "llm_message_end" as const,
-      methodName: "runLlmMessageEnd" as const,
-      event: {
-        runId: "run-1",
-        sessionId: "session-1",
-        provider: "openai",
-        model: "gpt-5",
-        message: { role: "assistant", content: [{ type: "text", text: "hi" }] },
-        usage: {
-          input: 10,
-          output: 20,
-          total: 30,
-        },
-      },
-      expectedEvent: {
-        runId: "run-1",
-        message: { role: "assistant", content: [{ type: "text", text: "hi" }] },
-      },
-    },
   ] as const)("$name", async ({ hookName, expectedEvent, event }) => {
     await expectLlmHookCall({ hookName, event, expectedEvent });
   });
@@ -162,6 +131,5 @@ describe("llm hook runner methods", () => {
     expect(runner.hasHooks("model_call_ended")).toBe(false);
     expect(runner.hasHooks("llm_input")).toBe(true);
     expect(runner.hasHooks("llm_output")).toBe(false);
-    expect(runner.hasHooks("llm_message_end")).toBe(false);
   });
 });

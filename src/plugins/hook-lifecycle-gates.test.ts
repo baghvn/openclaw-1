@@ -1,4 +1,3 @@
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { describe, expect, it, vi } from "vitest";
 import type { GlobalHookRunnerRegistry } from "./hook-registry.types.js";
 import type { PluginHookRegistration, PluginHookAgentContext } from "./hook-types.js";
@@ -18,26 +17,6 @@ const ctx: PluginHookAgentContext = {
   sessionKey: "session-1",
   sessionId: "sid-1",
 };
-
-function assistantMessage(text: string): AgentMessage {
-  return {
-    role: "assistant",
-    content: [{ type: "text", text }],
-    api: "openai",
-    provider: "test",
-    model: "test-model",
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason: "stop",
-    timestamp: Date.now(),
-  };
-}
 
 describe("before_agent_run hook", () => {
   it("returns undefined when no handlers registered", async () => {
@@ -285,145 +264,6 @@ describe("before_agent_run ask outcome", () => {
     const result = await runner.runBeforeAgentRun({ prompt: "test", messages: [] }, ctx);
     expect(result?.decision.outcome).toBe("block");
     expect(result?.pluginId).toBe("plugin-b");
-  });
-});
-
-describe("llm output gates", () => {
-  it("keeps llm_output observer-only even when a handler returns a decision", async () => {
-    const handler = vi.fn(async () => ({
-      outcome: "block" as const,
-      reason: "observer return should not gate",
-      message: "[blocked]",
-    }));
-    const registry = makeRegistry([
-      {
-        pluginId: "test",
-        hookName: "llm_output",
-        handler,
-        source: "test",
-      },
-    ]);
-    const runner = createHookRunner(registry);
-    const result = await runner.runLlmOutput(
-      {
-        runId: "r1",
-        sessionId: "s1",
-        provider: "test",
-        model: "test-model",
-        assistantTexts: ["hello"],
-      },
-      ctx,
-    );
-    expect(result).toBeUndefined();
-    expect(handler).toHaveBeenCalledOnce();
-  });
-
-  it("returns ask from llm_message_end so the runner can pause for approval", async () => {
-    const registry = makeRegistry([
-      {
-        pluginId: "plugin-a",
-        hookName: "llm_message_end",
-        handler: async () => ({
-          outcome: "ask" as const,
-          reason: "check",
-          title: "Check",
-          description: "Check this.",
-        }),
-        source: "test",
-        priority: 10,
-      },
-    ]);
-    const runner = createHookRunner(registry);
-    const result = await runner.runLlmMessageEnd(
-      {
-        runId: "r1",
-        sessionId: "s1",
-        provider: "test",
-        model: "test-model",
-        message: assistantMessage("hello"),
-      },
-      ctx,
-    );
-    expect(result?.decision.outcome).toBe("ask");
-    expect(result?.pluginId).toBe("plugin-a");
-  });
-
-  it("ask + block (with `message`) in sequence → block wins for llm_message_end", async () => {
-    const registry = makeRegistry([
-      {
-        pluginId: "plugin-a",
-        hookName: "llm_message_end",
-        handler: async () => ({
-          outcome: "ask" as const,
-          reason: "needs review",
-          title: "Check",
-          description: "Review.",
-        }),
-        source: "test",
-        priority: 10,
-      },
-      {
-        pluginId: "plugin-b",
-        hookName: "llm_message_end",
-        handler: async () => ({
-          outcome: "block" as const,
-          reason: "must replace",
-          message: "[replaced]",
-        }),
-        source: "test",
-        priority: 5,
-      },
-    ]);
-    const runner = createHookRunner(registry);
-    const result = await runner.runLlmMessageEnd(
-      {
-        runId: "r1",
-        sessionId: "s1",
-        provider: "test",
-        model: "test-model",
-        message: assistantMessage("sensitive"),
-      },
-      ctx,
-    );
-    expect(result?.decision.outcome).toBe("block");
-    expect(result?.pluginId).toBe("plugin-b");
-    if (result?.decision.outcome === "block") {
-      expect(result.decision.message).toBe("[replaced]");
-    }
-  });
-
-  it("returns block with retry: true from llm_message_end handler", async () => {
-    const registry = makeRegistry([
-      {
-        pluginId: "retry-plugin",
-        hookName: "llm_message_end",
-        handler: async () => ({
-          outcome: "block" as const,
-          reason: "needs another try",
-          message: "Please try again",
-          retry: true,
-          maxRetries: 2,
-        }),
-        source: "test",
-      },
-    ]);
-    const runner = createHookRunner(registry);
-    const result = await runner.runLlmMessageEnd(
-      {
-        runId: "r1",
-        sessionId: "s1",
-        provider: "test",
-        model: "test-model",
-        message: assistantMessage("unsatisfactory"),
-      },
-      ctx,
-    );
-    expect(result?.decision.outcome).toBe("block");
-    if (result?.decision.outcome === "block") {
-      expect(result.decision.retry).toBe(true);
-      expect(result.decision.maxRetries).toBe(2);
-      expect(result.decision.message).toBe("Please try again");
-    }
   });
 });
 

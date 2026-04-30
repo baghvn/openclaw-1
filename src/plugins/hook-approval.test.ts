@@ -68,13 +68,13 @@ describe("requestPluginApproval", () => {
     });
 
     const result = await requestSingleHookApproval({
-      hookPoint: "llm_message_end",
+      hookPoint: "before_agent_run",
       pluginId: "confirm-before-run",
       decision: {
         outcome: "ask",
         reason: "needs review",
-        title: "Approve output",
-        description: "Approve this assistant message?",
+        title: "Approve input",
+        description: "Approve this user message?",
       },
     });
 

@@ -13,12 +13,8 @@ export type HookDecisionPass = {
 /** Default user-facing replacement message when a `block` decision omits one. */
 export const DEFAULT_BLOCK_MESSAGE = "This response was blocked by policy";
 
-/** Default upper bound on retries when `block.retry === true`. */
-export const DEFAULT_BLOCK_MAX_RETRIES = 3;
-
 /**
  * Content is blocked. `reason` is internal; `message` is user-facing.
- * `retry` is only meaningful for `llm_message_end`.
  */
 export type HookDecisionBlock = {
   outcome: "block";
@@ -26,16 +22,6 @@ export type HookDecisionBlock = {
   reason: string;
   /** Optional user-facing replacement text. Defaults to `DEFAULT_BLOCK_MESSAGE`. */
   message?: string;
-  /**
-   * If true, retry the LLM call (same model, same prompt) instead of
-   * terminating the turn. Only meaningful for `llm_message_end`. Default: false.
-   */
-  retry?: boolean;
-  /**
-   * Upper bound on retries when `retry` is true. Defaults to
-   * `DEFAULT_BLOCK_MAX_RETRIES` (3) — guard against infinite loops.
-   */
-  maxRetries?: number;
   /** Plugin-defined category for analytics (e.g. "violence", "pii", "cost_limit"). */
   category?: string;
   /** Opaque metadata for the plugin's own use. Core does not interpret it. */
@@ -104,9 +90,6 @@ export function isHookDecision(value: unknown): value is HookDecision {
 
 /** Outcomes valid for input gates (before_agent_run). */
 export type InputGateDecision = HookDecisionPass | HookDecisionBlock | HookDecisionAsk;
-
-/** Outcomes valid for message-end gates. */
-export type MessageEndGateDecision = HookDecisionPass | HookDecisionBlock | HookDecisionAsk;
 
 /**
  * A gate hook decision paired with the pluginId that produced it.

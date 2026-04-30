@@ -11,7 +11,6 @@ import { concatOptionalTextSegments } from "../shared/text/join-segments.js";
 import {
   type HookDecision,
   type GateHookResult,
-  type MessageEndGateDecision,
   isHookDecision,
   mergeHookDecisions,
 } from "./hook-decision-types.js";
@@ -44,7 +43,6 @@ import type {
   PluginHookInboundClaimEvent,
   PluginHookInboundClaimResult,
   PluginHookLlmInputEvent,
-  PluginHookLlmMessageEndEvent,
   PluginHookLlmOutputEvent,
   PluginHookBeforeResetEvent,
   PluginHookBeforeToolCallEvent,
@@ -826,41 +824,6 @@ export function createHookRunner(
   }
 
   /**
-   * Run llm_message_end hook.
-   * Allows plugins to gate assistant messages at Pi message-end boundaries.
-   */
-  async function runLlmMessageEnd(
-    event: PluginHookLlmMessageEndEvent,
-    ctx: PluginHookAgentContext,
-  ): Promise<GateHookResult | undefined> {
-    let winningPluginId: string | undefined;
-    const decision = await runModifyingHook<"llm_message_end", HookDecision | undefined>(
-      "llm_message_end",
-      event,
-      ctx,
-      {
-        mergeResults: (_acc, next, reg): HookDecision | undefined => {
-          if (!isHookDecision(next)) {
-            return _acc;
-          }
-          const merged = mergeHookDecisions(_acc, next);
-          if (merged === next) {
-            winningPluginId = reg.pluginId;
-          }
-          return merged;
-        },
-        // Keep running past pass/ask so later handlers can still block.
-        shouldStop: (result) => result?.outcome === "block",
-        terminalLabel: "gate-decision",
-      },
-    );
-    if (!decision) {
-      return undefined;
-    }
-    return { decision: decision as MessageEndGateDecision, pluginId: winningPluginId ?? "unknown" };
-  }
-
-  /**
    * Run before_agent_finalize hook.
    * Allows plugins to request one more model pass before a natural final reply
    * is accepted. This is not the user-facing /stop cancellation path.
@@ -1441,7 +1404,6 @@ export function createHookRunner(
     runModelCallEnded,
     runLlmInput,
     runLlmOutput,
-    runLlmMessageEnd,
     runBeforeAgentFinalize,
     runAgentEnd,
     runBeforeCompaction,

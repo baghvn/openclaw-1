@@ -78,7 +78,6 @@ export type PluginHookName =
   | "model_call_ended"
   | "llm_input"
   | "llm_output"
-  | "llm_message_end"
   | "before_agent_finalize"
   | "agent_end"
   | "before_compaction"
@@ -117,7 +116,6 @@ export const PLUGIN_HOOK_NAMES = [
   "model_call_ended",
   "llm_input",
   "llm_output",
-  "llm_message_end",
   "before_agent_finalize",
   "agent_end",
   "before_compaction",
@@ -174,7 +172,6 @@ export const isPromptInjectionHookName = (hookName: PluginHookName): boolean =>
 export const CONVERSATION_HOOK_NAMES = [
   "llm_input",
   "llm_output",
-  "llm_message_end",
   "before_agent_finalize",
   "agent_end",
 ] as const satisfies readonly PluginHookName[];
@@ -275,20 +272,6 @@ export type PluginHookLlmOutputEvent = {
     cacheWrite?: number;
     total?: number;
   };
-};
-
-export type PluginHookLlmMessageEndEvent = {
-  runId: string;
-  sessionId: string;
-  provider: string;
-  model: string;
-  resolvedRef?: string;
-  harnessId?: string;
-  /** The original user prompt that produced this message. */
-  prompt?: string;
-  /** Assistant message at the Pi `message_end` boundary. */
-  message: AgentMessage;
-  usage?: PluginHookLlmOutputEvent["usage"];
 };
 
 export type PluginHookAgentEndEvent = {
@@ -866,10 +849,6 @@ export type PluginHookHandlerMap = {
     event: PluginHookLlmOutputEvent,
     ctx: PluginHookAgentContext,
   ) => Promise<void> | void;
-  llm_message_end: (
-    event: PluginHookLlmMessageEndEvent,
-    ctx: PluginHookAgentContext,
-  ) => Promise<HookDecision | void> | HookDecision | void;
   before_agent_finalize: (
     event: PluginHookBeforeAgentFinalizeEvent,
     ctx: PluginHookAgentContext,
