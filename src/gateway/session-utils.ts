@@ -27,13 +27,12 @@ import {
   resolveThinkingDefault,
 } from "../agents/model-selection.js";
 import {
-  countActiveDescendantRuns,
-  getSessionDisplaySubagentRunByChildSessionKey,
+  createSubagentRegistryReadContext,
   getSubagentSessionRuntimeMs,
   getSubagentSessionStartedAt,
   isSubagentRunLive,
-  listSubagentRunsForController,
   resolveSubagentSessionStatus,
+  type SubagentRegistryReadContext,
 } from "../agents/subagent-registry-read.js";
 import {
   RECENT_ENDED_SUBAGENT_CHILD_SESSION_MS,
@@ -333,15 +332,16 @@ function shouldKeepStoreOnlyChildLink(entry: SessionEntry, now: number): boolean
 function resolveChildSessionKeys(
   controllerSessionKey: string,
   store: Record<string, SessionEntry>,
+  subagentRegistry: SubagentRegistryReadContext,
   now = Date.now(),
 ): string[] | undefined {
   const childSessionKeys = new Set<string>();
-  for (const entry of listSubagentRunsForController(controllerSessionKey)) {
+  for (const entry of subagentRegistry.listRunsForController(controllerSessionKey)) {
     const childSessionKey = normalizeOptionalString(entry.childSessionKey);
     if (!childSessionKey) {
       continue;
     }
-    const latest = getSessionDisplaySubagentRunByChildSessionKey(childSessionKey);
+    const latest = subagentRegistry.getSessionDisplayRunByChildSessionKey(childSessionKey);
     if (!latest) {
       continue;
     }
@@ -353,7 +353,7 @@ function resolveChildSessionKeys(
     }
     if (
       !shouldKeepSubagentRunChildLink(latest, {
-        activeDescendants: countActiveDescendantRuns(childSessionKey),
+        activeDescendants: subagentRegistry.countActiveDescendantRuns(childSessionKey),
         now,
       })
     ) {
@@ -370,7 +370,7 @@ function resolveChildSessionKeys(
     if (spawnedBy !== controllerSessionKey && parentSessionKey !== controllerSessionKey) {
       continue;
     }
-    const latest = getSessionDisplaySubagentRunByChildSessionKey(key);
+    const latest = subagentRegistry.getSessionDisplayRunByChildSessionKey(key);
     if (latest) {
       const latestControllerSessionKey =
         normalizeOptionalString(latest.controllerSessionKey) ||
@@ -380,7 +380,7 @@ function resolveChildSessionKeys(
       }
       if (
         !shouldKeepSubagentRunChildLink(latest, {
-          activeDescendants: countActiveDescendantRuns(key),
+          activeDescendants: subagentRegistry.countActiveDescendantRuns(key),
           now,
         })
       ) {
@@ -1299,6 +1299,7 @@ export function buildGatewaySessionRow(params: {
   now?: number;
   includeDerivedTitles?: boolean;
   includeLastMessage?: boolean;
+  subagentRegistry?: SubagentRegistryReadContext;
 }): GatewaySessionRow {
   const { cfg, storePath, store, key, entry } = params;
   const now = params.now ?? Date.now();
@@ -1328,7 +1329,8 @@ export function buildGatewaySessionRow(params: {
   const deliveryFields = normalizeSessionDeliveryFields(entry);
   const parsedAgent = parseAgentSessionKey(key);
   const sessionAgentId = normalizeAgentId(parsedAgent?.agentId ?? resolveDefaultAgentId(cfg));
-  const subagentRun = getSessionDisplaySubagentRunByChildSessionKey(key);
+  const subagentRegistry = params.subagentRegistry ?? createSubagentRegistryReadContext();
+  const subagentRun = subagentRegistry.getSessionDisplayRunByChildSessionKey(key);
   const subagentOwner =
     normalizeOptionalString(subagentRun?.controllerSessionKey) ||
     normalizeOptionalString(subagentRun?.requesterSessionKey);
@@ -1433,7 +1435,7 @@ export function buildGatewaySessionRow(params: {
     typeof totalTokens === "number" && Number.isFinite(totalTokens) && totalTokens > 0
       ? true
       : transcriptUsage?.totalTokensFresh === true;
-  const childSessions = resolveChildSessionKeys(key, store, now);
+  const childSessions = resolveChildSessionKeys(key, store, subagentRegistry, now);
   const latestCompactionCheckpoint = resolveLatestCompactionCheckpoint(entry);
   const agentRuntime = resolveAgentRuntimeMetadata(cfg, sessionAgentId);
   const selectedOrRuntimeModelProvider = selectedModel?.provider ?? modelProvider;
@@ -1626,6 +1628,11 @@ export function listSessionsFromStore(params: {
     typeof opts.activeMinutes === "number" && Number.isFinite(opts.activeMinutes)
       ? Math.max(1, Math.floor(opts.activeMinutes))
       : undefined;
+  let subagentRegistry: SubagentRegistryReadContext | undefined;
+  const getSubagentRegistry = () => {
+    subagentRegistry ??= createSubagentRegistryReadContext();
+    return subagentRegistry;
+  };
 
   let entries = Object.entries(store)
     .filter(([key]) => {
@@ -1657,7 +1664,7 @@ export function listSessionsFromStore(params: {
       if (key === "unknown" || key === "global") {
         return false;
       }
-      const latest = getSessionDisplaySubagentRunByChildSessionKey(key);
+      const latest = getSubagentRegistry().getSessionDisplayRunByChildSessionKey(key);
       if (latest) {
         const latestControllerSessionKey =
           normalizeOptionalString(latest.controllerSessionKey) ||
@@ -1665,7 +1672,7 @@ export function listSessionsFromStore(params: {
         return (
           latestControllerSessionKey === spawnedBy &&
           shouldKeepSubagentRunChildLink(latest, {
-            activeDescendants: countActiveDescendantRuns(key),
+            activeDescendants: getSubagentRegistry().countActiveDescendantRuns(key),
             now,
           })
         );
@@ -1719,6 +1726,7 @@ export function listSessionsFromStore(params: {
       now,
       includeDerivedTitles,
       includeLastMessage,
+      subagentRegistry: getSubagentRegistry(),
     }),
   );
 
