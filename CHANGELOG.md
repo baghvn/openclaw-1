@@ -4,6 +4,10 @@ Docs: https://docs.openclaw.ai
 
 ## Unreleased
 
+### Changes
+
+- Infra: add root-scoped fs-safe stat, directory-list, and rename helpers with pinned directory-parent handling for future file operations. (#73442) Thanks @jesse-merhi.
+
 ### Fixes
 
 - Agents/subagents: bound automatic orphan recovery with persisted recovery attempts and a wedged-session tombstone, and teach task maintenance/doctor to reconcile those sessions so restart loops no longer require manual `sessions.json` surgery. Fixes #74864. Thanks @solosage1.
