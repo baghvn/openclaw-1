@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenClaw Small Bugfix Sweep"
+  short_description: "Fix only small, high-certainty OpenClaw bugs from a pasted issue/PR list"
+  default_prompt: "Use $openclaw-small-bugfix-sweep: inspect each OpenClaw issue/PR, fix only high-certainty small bugs, skip config/product/speculative/refactor-sized work."
