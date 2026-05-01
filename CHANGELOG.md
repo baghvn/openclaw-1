@@ -7,6 +7,7 @@ Docs: https://docs.openclaw.ai
 ### Changes
 
 - Dependencies: refresh workspace dependency pins, including TypeBox 1.1.37, AWS SDK 3.1041.0, Microsoft Teams 2.0.9, and Marked 18.0.3. Thanks @mariozechner, @aws, and @microsoft.
+- Agents/Codex: add committed happy-path prompt snapshots for Codex/message-tool Telegram direct, Discord group, and heartbeat turns so prompt drift can be reviewed. Thanks @pashpashpash.
 
 ### Fixes
 
