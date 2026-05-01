@@ -51,7 +51,7 @@ function registerEntries<
   }
 }
 
-function resolveEntry<T extends { expiresAt?: number }>(
+function resolveEntry<T extends { expiresAt?: number; messageId?: string }>(
   store: Map<string, T>,
   params: { id: string; consume?: boolean },
 ): T | null {
@@ -65,7 +65,15 @@ function resolveEntry<T extends { expiresAt?: number }>(
     return null;
   }
   if (params.consume !== false) {
-    store.delete(params.id);
+    if (entry.messageId) {
+      for (const [id, candidate] of store) {
+        if (candidate.messageId === entry.messageId) {
+          store.delete(id);
+        }
+      }
+    } else {
+      store.delete(params.id);
+    }
   }
   return entry;
 }

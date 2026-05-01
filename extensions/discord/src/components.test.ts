@@ -113,6 +113,36 @@ describe("discord component registry", () => {
     expect(resolveDiscordComponentEntry({ id: "btn_1" })).toBeNull();
   });
 
+  it("consumes all component entries for a non-reusable message panel", () => {
+    registerDiscordComponentEntries({
+      entries: [
+        { id: "btn_1", kind: "button", label: "Confirm" },
+        { id: "btn_2", kind: "button", label: "Cancel" },
+      ],
+      modals: [],
+      messageId: "msg_1",
+      ttlMs: 1000,
+    });
+
+    expect(resolveDiscordComponentEntry({ id: "btn_1" })?.id).toBe("btn_1");
+    expect(resolveDiscordComponentEntry({ id: "btn_2", consume: false })).toBeNull();
+  });
+
+  it("keeps reusable message panel entries after a component is used", () => {
+    registerDiscordComponentEntries({
+      entries: [
+        { id: "btn_1", kind: "button", label: "Confirm", reusable: true },
+        { id: "btn_2", kind: "button", label: "Cancel", reusable: true },
+      ],
+      modals: [],
+      messageId: "msg_1",
+      ttlMs: 1000,
+    });
+
+    expect(resolveDiscordComponentEntry({ id: "btn_1", consume: false })?.id).toBe("btn_1");
+    expect(resolveDiscordComponentEntry({ id: "btn_2", consume: false })?.id).toBe("btn_2");
+  });
+
   it("shares registry state across duplicate module instances", async () => {
     const first = (await import(
       `${componentsRegistryModuleUrl}?t=first-${Date.now()}`
