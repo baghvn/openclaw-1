@@ -91,6 +91,7 @@ type ClaudeCliWriteOptions = ClaudeCliFileOptions & {
 };
 
 type ExecFileSyncFn = typeof execFileSync;
+type ExecSyncFn = typeof execSyncNative;
 
 function resolveClaudeCliCredentialsPath(homeDir?: string) {
   const baseDir = homeDir ?? resolveUserPath("~");
@@ -236,6 +237,7 @@ function readCodexKeychainCredentialsSync(options?: {
   codexHome?: string;
   platform?: NodeJS.Platform;
   allowKeychainPrompt?: boolean;
+  execSyncImpl?: ExecSyncFn;
 }): CodexCliCredential | null {
   // Sync shim — blocks the event loop. Prefer async version where possible.
   const platform = options?.platform ?? process.platform;
@@ -244,8 +246,9 @@ function readCodexKeychainCredentialsSync(options?: {
   }
   const codexHome = resolveCodexHomePath(options?.codexHome);
   const account = computeCodexKeychainAccount(codexHome);
+  const execSyncImpl = options?.execSyncImpl ?? execSyncNative;
   try {
-    const secret = execSyncNative(
+    const secret = execSyncImpl(
       `security find-generic-password -s "Codex Auth" -a "${account}" -w`,
       { encoding: "utf8", timeout: 5000, stdio: ["pipe", "pipe", "pipe"] },
     ).trim();
@@ -354,11 +357,14 @@ function readGeminiCliCredentials(options?: { homeDir?: string }): GeminiCliCred
   };
 }
 
-function readClaudeCliKeychainCredentialsSync(): ClaudeCliCredential | null {
+function readClaudeCliKeychainCredentialsSync(options?: {
+  execSyncImpl?: ExecSyncFn;
+}): ClaudeCliCredential | null {
   // Sync shim used by public API callers that cannot await.
   // Uses execSync directly; prefer the async version where possible.
+  const execSyncImpl = options?.execSyncImpl ?? execSyncNative;
   try {
-    const result = execSyncNative(
+    const result = execSyncImpl(
       `security find-generic-password -s "${CLAUDE_CLI_KEYCHAIN_SERVICE}" -w`,
       { encoding: "utf8", timeout: 5000, stdio: ["pipe", "pipe", "pipe"] },
     );
@@ -373,13 +379,14 @@ export function readClaudeCliCredentials(options?: {
   allowKeychainPrompt?: boolean;
   platform?: NodeJS.Platform;
   homeDir?: string;
+  execSync?: ExecSyncFn;
 }): ClaudeCliCredential | null {
   const platform = options?.platform ?? process.platform;
   if (platform === "darwin" && options?.allowKeychainPrompt !== false) {
-    // Note: keychain read is async internally; this sync wrapper uses execAsync
+    // Note: keychain read is async internally; this sync wrapper uses execSync
     // but falls back gracefully. For fully non-blocking behaviour, callers
     // should use readClaudeCliCredentialsAsync when available.
-    const keychainCreds = readClaudeCliKeychainCredentialsSync();
+    const keychainCreds = readClaudeCliKeychainCredentialsSync({ execSyncImpl: options?.execSync });
     if (keychainCreds) {
       log.info("read anthropic credentials from claude cli keychain", {
         type: keychainCreds.type,
@@ -403,6 +410,7 @@ export function readClaudeCliCredentialsCached(options?: {
   ttlMs?: number;
   platform?: NodeJS.Platform;
   homeDir?: string;
+  execSync?: ExecSyncFn;
 }): ClaudeCliCredential | null {
   const platform = options?.platform ?? process.platform;
   const ttlMs = options?.ttlMs ?? 0;
@@ -418,6 +426,7 @@ export function readClaudeCliCredentialsCached(options?: {
         allowKeychainPrompt: options?.allowKeychainPrompt,
         platform,
         homeDir: options?.homeDir,
+        execSync: options?.execSync,
       }),
     setCache: (next) => {
       claudeCliCache = next;
@@ -547,12 +556,13 @@ export function readCodexCliCredentials(options?: {
   codexHome?: string;
   allowKeychainPrompt?: boolean;
   platform?: NodeJS.Platform;
+  execSync?: ExecSyncFn;
 }): CodexCliCredential | null {
   const keychain = readCodexKeychainCredentialsSync({
     codexHome: options?.codexHome,
     allowKeychainPrompt: options?.allowKeychainPrompt,
     platform: options?.platform,
-    execAsync: options?.execAsync,
+    execSyncImpl: options?.execSync,
   });
   if (keychain) {
     return keychain;
@@ -605,6 +615,7 @@ export function readCodexCliCredentialsCached(options?: {
   allowKeychainPrompt?: boolean;
   ttlMs?: number;
   platform?: NodeJS.Platform;
+  execSync?: ExecSyncFn;
 }): CodexCliCredential | null {
   const platform = options?.platform ?? process.platform;
   const ttlMs = options?.ttlMs ?? 0;
@@ -620,6 +631,7 @@ export function readCodexCliCredentialsCached(options?: {
         codexHome: options?.codexHome,
         allowKeychainPrompt: options?.allowKeychainPrompt,
         platform: options?.platform,
+        execSync: options?.execSync,
       }),
     setCache: (next) => {
       codexCliCache = next;
